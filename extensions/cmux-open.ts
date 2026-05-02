@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { buildShellCommand, openCommandInNewSplit, type SplitDirection } from "./cmux-core.ts";
+import { t } from "./i18n.ts";
 
 async function openToolInSplit(
 	pi: ExtensionAPI,
@@ -22,7 +23,7 @@ function registerOpenCommand(
 		handler: async (args, ctx) => {
 			const command = args.trim();
 			if (!command) {
-				ctx.ui.notify(`Usage: /${name} <command...>`, "warning");
+				ctx.ui.notify(t("open.usage", { name }), "warning");
 				return;
 			}
 
@@ -30,7 +31,7 @@ function registerOpenCommand(
 			if (result.ok) {
 				ctx.ui.notify(successMessage, "info");
 			} else {
-				ctx.ui.notify(`tool split failed: ${result.error}`, "error");
+				ctx.ui.notify(t("open.failed", { error: result.error }), "error");
 			}
 		},
 	});
@@ -41,22 +42,22 @@ export default function cmuxOpenExtension(pi: ExtensionAPI) {
 		pi,
 		"cmo",
 		"right",
-		"Open a new right split and run any shell command there",
-		"Opened a tool split to the right",
+		t("open.right.description"),
+		t("open.success.right"),
 	);
 	registerOpenCommand(
 		pi,
 		"cmov",
 		"right",
-		"Alias for /cmo",
-		"Opened a tool split to the right",
+		t("open.alias.cmo"),
+		t("open.success.right"),
 	);
 
 	registerOpenCommand(
 		pi,
 		"cmoh",
 		"down",
-		"Open a new lower split and run any shell command there",
-		"Opened a tool split below",
+		t("open.down.description"),
+		t("open.success.down"),
 	);
 }
