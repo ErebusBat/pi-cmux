@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-05-27
+
+### Fixed
+
+- Reset stale tool status after tool execution ends so failed bash/tool calls do not leave `Pi bash` pinned while Pi continues thinking.
+
 ## [0.1.13] - 2026-05-27
 
 ### Added
@@ -14,7 +20,6 @@
 
 ### Fixed
 
-- Reset stale tool status after tool execution ends so failed bash/tool calls do not leave `Pi bash` pinned while Pi continues thinking.
 - Count provider-reported token usage/cost from aborted or errored assistant messages in sidebar token totals.
 - Show aborted Pi runs as cancelled/warning in the cmux sidebar instead of red `Pi error`.
 - Stopped leaving persistent `Pi idle` / `Pi done` status pills in the cmux sidebar after runs finish.
