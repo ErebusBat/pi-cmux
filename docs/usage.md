@@ -36,7 +36,7 @@ PI_CMUX_NOTIFY_LEVEL=disabled  # off
 It uses:
 - `cmux set-status` for a temporary Pi status pill while Pi is running, using tools, waiting, done, or errored
 - `cmux set-progress` for coarse run progress and live token counts while Pi is active
-- `cmux log` for run starts, changed files, warnings, final summaries, and compact session token counts, with cached input split out
+- `cmux log` for run starts, one-second working heartbeat lines, changed files, warnings, final summaries, and compact session token counts, with cached input split out
 - `cmux trigger-flash` when a run finishes and the surface needs attention
 
 Environment settings:
@@ -45,6 +45,7 @@ Environment settings:
 PI_CMUX_SIDEBAR=0                    # disable sidebar integration
 PI_CMUX_SIDEBAR_FLASH=all            # all | error | disabled
 PI_CMUX_SIDEBAR_LOG_TOOLS=1          # log every tool result
+PI_CMUX_SIDEBAR_ACTIVITY=0          # disable one-second working heartbeat log lines
 PI_CMUX_SIDEBAR_LOG_PROMPT=1         # include truncated prompt in start log
 PI_CMUX_SIDEBAR_PROGRESS=0           # disable progress bar updates
 PI_CMUX_SIDEBAR_TOKENS=0             # disable compact live session token counts
@@ -294,6 +295,7 @@ PI_CMUX_NOTIFY_INCLUDE_RESPONSE=0|1
 PI_CMUX_SIDEBAR=0|1
 PI_CMUX_SIDEBAR_FLASH=all|error|disabled
 PI_CMUX_SIDEBAR_LOG_TOOLS=0|1
+PI_CMUX_SIDEBAR_ACTIVITY=0|1
 PI_CMUX_SIDEBAR_LOG_PROMPT=0|1
 PI_CMUX_SIDEBAR_PROGRESS=0|1
 PI_CMUX_SIDEBAR_TOKENS=0|1
