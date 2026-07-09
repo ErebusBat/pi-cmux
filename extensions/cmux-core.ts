@@ -11,30 +11,16 @@ const TAB_TITLE_SEPARATOR = " · ";
 
 export type SplitDirection = "right" | "down";
 
-interface CmuxCallerInfo {
-	workspace_ref?: string;
-	pane_ref?: string;
-	surface_ref?: string;
-}
-
 interface CmuxCallerContext {
 	workspace_ref: string;
 	surface_ref: string;
 	pane_ref?: string;
 }
 
-interface CmuxIdentifyResponse {
-	caller?: CmuxCallerInfo;
-}
-
 interface CmuxPaneInfo {
 	ref?: string;
 	selected_surface_ref?: string;
 	surface_refs?: string[];
-}
-
-interface CmuxListPanesResponse {
-	panes?: CmuxPaneInfo[];
 }
 
 interface CmuxExecResult {
@@ -55,9 +41,9 @@ export interface OpenCommandInNewTabOptions {
 }
 
 function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => {
-		setTimeout(resolve, ms);
-	});
+	const { promise, resolve } = Promise.withResolvers<void>();
+	setTimeout(resolve, ms);
+	return promise;
 }
 
 function parseJson<T>(text: string): T | undefined {
@@ -141,7 +127,8 @@ function collectSurfaceRefs(panes: CmuxPaneInfo[]): Set<string> {
 	return refs;
 }
 
-async function execCmux(pi: ExtensionAPI, args: string[]): Promise<CmuxExecResult> {
+async function execCmuxRpc(pi: ExtensionAPI, method: string, params?: Record<string, unknown>): Promise<CmuxExecResult> {
+	const args = params ? ["rpc", method, JSON.stringify(params)] : ["rpc", method];
 	const result = await pi.exec("cmux", args, { timeout: CMUX_TIMEOUT_MS });
 	if (result.killed) {
 		return {
@@ -167,14 +154,23 @@ async function execCmux(pi: ExtensionAPI, args: string[]): Promise<CmuxExecResul
 }
 
 async function getCallerInfo(pi: ExtensionAPI): Promise<{ ok: true; caller: CmuxCallerContext } | { ok: false; error: string }> {
-	const result = await execCmux(pi, ["--json", "identify"]);
+	const result = await execCmuxRpc(pi, "system.identify");
 	if (!result.ok) {
 		return { ok: false, error: result.error || "Failed to identify cmux caller" };
 	}
 
-	const parsed = parseJson<CmuxIdentifyResponse>(result.stdout);
-	const workspaceRef = parsed?.caller?.workspace_ref;
-	const surfaceRef = parsed?.caller?.surface_ref;
+	const parsed = parseJson<Record<string, unknown>>(result.stdout);
+	if (!parsed) {
+		return { ok: false, error: "Failed to parse cmux identify response" };
+	}
+
+	// system.identify returns { caller, focused }. When running inside a surface
+	// via ssh proxy, caller is null and focused has the session context.
+	const source = (parsed.caller as Record<string, unknown> | null | undefined)
+		?? (parsed.focused as Record<string, unknown> | null | undefined);
+
+	const workspaceRef = typeof source?.workspace_ref === "string" ? source.workspace_ref : undefined;
+	const surfaceRef = typeof source?.surface_ref === "string" ? source.surface_ref : undefined;
 	if (!workspaceRef || !surfaceRef) {
 		return { ok: false, error: "This command must be run from inside a cmux surface" };
 	}
@@ -184,18 +180,18 @@ async function getCallerInfo(pi: ExtensionAPI): Promise<{ ok: true; caller: Cmux
 		caller: {
 			workspace_ref: workspaceRef,
 			surface_ref: surfaceRef,
-			pane_ref: parsed?.caller?.pane_ref,
+			pane_ref: typeof source?.pane_ref === "string" ? source.pane_ref : undefined,
 		},
 	};
 }
 
 async function listPanes(pi: ExtensionAPI, workspaceRef: string): Promise<{ ok: true; panes: CmuxPaneInfo[] } | { ok: false; error: string }> {
-	const result = await execCmux(pi, ["--json", "list-panes", "--workspace", workspaceRef]);
+	const result = await execCmuxRpc(pi, "pane.list", { workspace_id: workspaceRef });
 	if (!result.ok) {
 		return { ok: false, error: result.error || "Failed to list cmux panes" };
 	}
 
-	const parsed = parseJson<CmuxListPanesResponse>(result.stdout);
+	const parsed = parseJson<{ panes?: CmuxPaneInfo[] }>(result.stdout);
 	return { ok: true, panes: parsed?.panes ?? [] };
 }
 
@@ -235,22 +231,18 @@ async function waitForNewSurface(pi: ExtensionAPI, workspaceRef: string, previou
 	return undefined;
 }
 
-async function renameSurfaceTab(pi: ExtensionAPI, workspaceRef: string, surfaceRef: string, title: string | undefined): Promise<void> {
+async function renameSurfaceTab(pi: ExtensionAPI, _workspaceRef: string, surfaceRef: string, title: string | undefined): Promise<void> {
 	const tabTitle = formatTabTitle(title, "");
 	if (!tabTitle) {
 		return;
 	}
 
 	try {
-		await execCmux(pi, [
-			"rename-tab",
-			"--workspace",
-			workspaceRef,
-			"--surface",
-			surfaceRef,
-			"--title",
-			tabTitle,
-		]);
+		await execCmuxRpc(pi, "tab.action", {
+			action: "rename",
+			tab_id: surfaceRef,
+			title: tabTitle,
+		});
 	} catch {
 		// Tab naming is best-effort; the spawned split is still useful if rename fails.
 	}
@@ -263,15 +255,11 @@ async function respawnSurface(
 	command: string,
 	failureMessage: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-	const respawnResult = await execCmux(pi, [
-		"respawn-pane",
-		"--workspace",
-		workspaceRef,
-		"--surface",
-		surfaceRef,
-		"--command",
+	const respawnResult = await execCmuxRpc(pi, "surface.respawn", {
+		workspace_id: workspaceRef,
+		surface_id: surfaceRef,
 		command,
-	]);
+	});
 	if (!respawnResult.ok) {
 		return { ok: false, error: respawnResult.error || failureMessage };
 	}
@@ -296,19 +284,16 @@ export async function openCommandInNewSplit(
 		return beforePanesResult;
 	}
 
-	const splitArgs = [
-		"new-split",
+	const splitParams: Record<string, unknown> = {
+		workspace_id: workspaceRef,
+		surface_id: surfaceRef,
 		direction,
-		"--workspace",
-		workspaceRef,
-		"--surface",
-		surfaceRef,
-	];
+	};
 	if (options.focus !== undefined) {
-		splitArgs.push("--focus", String(options.focus));
+		splitParams.focus = options.focus;
 	}
 
-	const splitResult = await execCmux(pi, splitArgs);
+	const splitResult = await execCmuxRpc(pi, "surface.split", splitParams);
 	if (!splitResult.ok) {
 		return { ok: false, error: splitResult.error || "Failed to create cmux split" };
 	}
@@ -350,19 +335,14 @@ export async function openCommandInNewTab(
 		return beforePanesResult;
 	}
 
-	const newSurfaceResult = await execCmux(pi, [
-		"new-surface",
-		"--type",
-		"terminal",
-		"--workspace",
-		workspaceRef,
-		"--pane",
-		paneRef,
-		"--focus",
-		String(options.focus ?? true),
-	]);
-	if (!newSurfaceResult.ok) {
-		return { ok: false, error: newSurfaceResult.error || "Failed to create cmux tab" };
+	const createResult = await execCmuxRpc(pi, "surface.create", {
+		type: "terminal",
+		workspace_id: workspaceRef,
+		pane_id: paneRef,
+		focus: options.focus ?? true,
+	});
+	if (!createResult.ok) {
+		return { ok: false, error: createResult.error || "Failed to create cmux tab" };
 	}
 
 	const newSurfaceRef = await waitForNewSurface(pi, workspaceRef, beforePanesResult.panes);

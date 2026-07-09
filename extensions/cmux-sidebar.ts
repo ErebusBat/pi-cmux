@@ -436,13 +436,15 @@ function isCmuxUnavailableError(text: string): boolean {
 	const normalized = text.toLowerCase();
 	const commandNotFound = normalized.includes("cmux") &&
 		(normalized.includes("command not found") || normalized.includes("cmux: not found"));
-	return normalized.includes("enoent") ||
+	return normalized.includes("unknown command") ||
+		normalized.includes("enoent") ||
 		commandNotFound ||
 		normalized.includes("no such file or directory") ||
 		normalized.includes("failed to connect") ||
 		normalized.includes("could not connect") ||
 		normalized.includes("connection refused") ||
 		normalized.includes("connection reset") ||
+		normalized.includes("sidebar file is missing") ||
 		normalized.includes("econnrefused") ||
 		normalized.includes("econnreset") ||
 		normalized.includes("socket");
@@ -588,10 +590,11 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		if (!progressEnabled) return;
 		enqueueCmux(["clear-progress"]);
 	};
-
 	const triggerFlash = (isError: boolean): void => {
 		if (flashUnavailable || !shouldFlash(flashLevel, isError)) return;
-		enqueueCmux(["trigger-flash"], () => {
+		const surfaceId = process.env.CMUX_SURFACE_ID?.trim();
+		if (!surfaceId) return;
+		enqueueCmux(["rpc", "surface.trigger_flash", JSON.stringify({ surface_id: surfaceId })], () => {
 			flashUnavailable = true;
 		});
 	};

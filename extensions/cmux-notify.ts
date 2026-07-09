@@ -238,7 +238,7 @@ export default function cmuxNotifyExtension(pi: ExtensionAPI) {
 			return { ok: true };
 		}
 
-		const args = ["notify", "--title", title, "--subtitle", subtitle, "--body", body];
+		const args = ["rpc", "notification.create", JSON.stringify({ title, subtitle, body })];
 		const result = await pi.exec("cmux", args, { timeout: NOTIFY_TIMEOUT_MS });
 		if (result.killed) {
 			return { ok: false, error: "cmux notify timed out" };
