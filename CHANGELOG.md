@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added one-second cmux sidebar heartbeat logs while Pi is actively working.
+
+### Fixed
+
+- Fixed pi-cmux loading under OMP's bundled Pi agent by avoiding unavailable runtime type-guard exports.
+
 ## [0.1.16] - 2026-05-27
 
 ### Added

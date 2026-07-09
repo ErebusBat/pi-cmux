@@ -1,12 +1,4 @@
 import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import {
-	isBashToolResult,
-	isEditToolResult,
-	isFindToolResult,
-	isGrepToolResult,
-	isReadToolResult,
-	isWriteToolResult,
-} from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
 
 const DEFAULT_THRESHOLD_MS = 15000;
@@ -87,7 +79,7 @@ function summarizeError(event: ToolResultEvent): string {
 	if (path) {
 		return `${event.toolName} failed for ${basename(path)}`;
 	}
-	if (isBashToolResult(event)) {
+	if (event.toolName === "bash") {
 		return "bash command failed";
 	}
 	const text = getFirstText(event);
@@ -273,24 +265,24 @@ export default function cmuxNotifyExtension(pi: ExtensionAPI) {
 			runState.firstToolError = summarizeError(event);
 		}
 
-		if (isReadToolResult(event)) {
+		if (event.toolName === "read") {
 			const path = getPathFromInput(event);
 			if (path) runState.readFiles.add(path);
 			return;
 		}
 
-		if (isEditToolResult(event) || isWriteToolResult(event)) {
+		if (event.toolName === "edit" || event.toolName === "write") {
 			const path = getPathFromInput(event);
 			if (path && !event.isError) runState.changedFiles.add(path);
 			return;
 		}
 
-		if (isGrepToolResult(event) || isFindToolResult(event)) {
+		if (event.toolName === "grep" || event.toolName === "find") {
 			if (!event.isError) runState.searchCount += 1;
 			return;
 		}
 
-		if (isBashToolResult(event) && !event.isError) {
+		if (event.toolName === "bash" && !event.isError) {
 			runState.bashCount += 1;
 		}
 	});

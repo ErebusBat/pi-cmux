@@ -1,12 +1,4 @@
 import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import {
-	isBashToolResult,
-	isEditToolResult,
-	isFindToolResult,
-	isGrepToolResult,
-	isReadToolResult,
-	isWriteToolResult,
-} from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
 
 const DEFAULT_COMPLETE_THRESHOLD_MS = 15000;
@@ -16,10 +8,12 @@ const MAX_LOG_LENGTH = 240;
 const MAX_PROMPT_LENGTH = 120;
 const DEFAULT_STATUS_PRIORITY = 80;
 const TOKEN_PROGRESS_UPDATE_MIN_MS = 500;
+const ACTIVITY_LOG_INTERVAL_MS = 1000;
 
 type StatusKind = "running" | "tool" | "waiting" | "complete" | "cancelled" | "error";
 type LogLevel = "info" | "progress" | "success" | "warning" | "error";
 type FlashLevel = "all" | "error" | "disabled";
+type TimerHandle = NodeJS.Timeout;
 
 interface RunState {
 	startedAt: number;
@@ -164,7 +158,7 @@ function summarizeToolError(event: ToolResultEvent): string {
 	if (path) {
 		return `${event.toolName} failed for ${basename(path)}`;
 	}
-	if (isBashToolResult(event)) {
+	if (event.toolName === "bash") {
 		return "bash command failed";
 	}
 	const text = getFirstText(event);
@@ -174,17 +168,15 @@ function summarizeToolError(event: ToolResultEvent): string {
 	return truncateText(text, 120);
 }
 
-function isLsToolResultEvent(event: ToolResultEvent): boolean {
-	return event.toolName === "ls";
-}
+
 
 function summarizeToolResult(event: ToolResultEvent): string {
 	const path = getPathFromInput(event);
-	if (isReadToolResult(event) && path) return `Read ${basename(path)}`;
-	if ((isEditToolResult(event) || isWriteToolResult(event)) && path) return `Updated ${basename(path)}`;
-	if ((isGrepToolResult(event) || isFindToolResult(event)) && path) return `Searched ${basename(path)}`;
-	if (isLsToolResultEvent(event) && path) return `Listed ${basename(path)}`;
-	if (isBashToolResult(event)) return "bash command completed";
+	if (event.toolName === "read" && path) return `Read ${basename(path)}`;
+	if ((event.toolName === "edit" || event.toolName === "write") && path) return `Updated ${basename(path)}`;
+	if ((event.toolName === "grep" || event.toolName === "find") && path) return `Searched ${basename(path)}`;
+	if (event.toolName === "ls" && path) return `Listed ${basename(path)}`;
+	if (event.toolName === "bash") return "bash command completed";
 	return `${event.toolName} completed`;
 }
 
@@ -235,6 +227,23 @@ function summarizeSuccess(state: RunState, durationMs: number, thresholdMs: numb
 	return durationMs >= thresholdMs
 		? `Finished in ${formatDuration(durationMs)}`
 		: "Finished and waiting for input";
+}
+
+function summarizeActivity(state: RunState, durationMs: number, label?: string): string {
+	const parts = [`Working - ${formatDuration(durationMs)}`];
+	if (state.turnCount > 0) {
+		parts.push(`${state.turnCount} ${pluralize(state.turnCount, "turn")}`);
+	}
+	if (state.toolCount > 0) {
+		parts.push(`${state.toolCount} ${pluralize(state.toolCount, "tool")}`);
+	}
+	if (
+		label &&
+		!["Starting", "Thinking", "Working", "Tool warning", "Done", "Waiting", "Cancelled", "Error"].includes(label)
+	) {
+		parts.push(label);
+	}
+	return parts.join(" - ");
 }
 
 function isAssistantMessage(message: unknown): message is AssistantMessageLike {
@@ -454,6 +463,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	const progressEnabled = getBooleanFromEnv("PI_CMUX_SIDEBAR_PROGRESS", true);
 	const tokenTrackingEnabled = getBooleanFromEnv("PI_CMUX_SIDEBAR_TOKENS", true);
 	const includeTokenCost = getBooleanFromEnv("PI_CMUX_SIDEBAR_COST", false);
+	const activityLogEnabled = getBooleanFromEnv("PI_CMUX_SIDEBAR_ACTIVITY", true);
 	const toolLogsEnabled = getBooleanFromEnv("PI_CMUX_SIDEBAR_LOG_TOOLS", false);
 	const includePromptInLog = getBooleanFromEnv("PI_CMUX_SIDEBAR_LOG_PROMPT", false);
 	const flashLevel = getFlashLevelFromEnv();
@@ -469,7 +479,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	let cmuxUnavailable = false;
 	let flashUnavailable = false;
 	let commandQueue = Promise.resolve();
-	let finalClearTimeout: ReturnType<typeof setTimeout> | undefined;
+	let finalClearTimeout: TimerHandle | undefined;
 	let tokenBaseTotals = createEmptyTokenTotals();
 	let tokenRunTotals = createEmptyTokenTotals();
 	let liveAssistantUsage: TokenUsageLike | undefined;
@@ -478,6 +488,8 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	let currentProgressValue: number | undefined;
 	let currentProgressLabel: string | undefined;
 	let lastTokenProgressUpdateAt = 0;
+	let activityLogTimer: TimerHandle | undefined;
+	let lastActivityLogAt = 0;
 
 	const markCmuxUnavailableIfFatal = (text: string): void => {
 		if (isCmuxUnavailableError(text)) {
@@ -590,6 +602,30 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		finalClearTimeout = undefined;
 	};
 
+	const stopActivityLog = (): void => {
+		if (activityLogTimer) {
+			clearInterval(activityLogTimer);
+			activityLogTimer = undefined;
+		}
+		lastActivityLogAt = 0;
+	};
+
+	const appendActivityLog = (force = false): void => {
+		if (!activityLogEnabled || !agentActive) return;
+		const now = Date.now();
+		const durationMs = now - runState.startedAt;
+		if (durationMs < ACTIVITY_LOG_INTERVAL_MS) return;
+		if (!force && now - lastActivityLogAt < ACTIVITY_LOG_INTERVAL_MS) return;
+		lastActivityLogAt = now;
+		appendLog("progress", summarizeActivity(runState, durationMs, currentProgressLabel));
+	};
+
+	const startActivityLog = (): void => {
+		if (!activityLogEnabled || activityLogTimer) return;
+		activityLogTimer = setInterval(() => appendActivityLog(), ACTIVITY_LOG_INTERVAL_MS);
+		activityLogTimer.unref?.();
+	};
+
 	const scheduleFinalClear = (sequence: number): void => {
 		cancelFinalClear();
 		finalClearTimeout = setTimeout(() => {
@@ -603,6 +639,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async () => {
+		stopActivityLog();
 		cancelFinalClear();
 		runState = createEmptyRunState();
 		tokenBaseTotals = createEmptyTokenTotals();
@@ -622,6 +659,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	pi.on("agent_start", async (_event, ctx) => {
 		runSequence += 1;
 		agentActive = true;
+		lastActivityLogAt = 0;
 		cancelFinalClear();
 		runState = createEmptyRunState(pendingPrompt);
 		pendingPrompt = undefined;
@@ -633,6 +671,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		setStatus("running", "Pi running");
 		setProgress(0.08, "Starting");
 		appendLog("progress", includePromptInLog && runState.prompt ? `Started: ${runState.prompt}` : "Run started");
+		startActivityLog();
 	});
 
 	pi.on("turn_start", async (event) => {
@@ -679,24 +718,24 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		if (isReadToolResult(event)) {
+		if (event.toolName === "read") {
 			const path = getPathFromInput(event);
 			if (path) runState.readFiles.add(path);
-		} else if (isEditToolResult(event) || isWriteToolResult(event)) {
+		} else if (event.toolName === "edit" || event.toolName === "write") {
 			const path = getPathFromInput(event);
 			if (path) {
 				runState.changedFiles.add(path);
 				appendLog("success", `Updated ${basename(path)}`);
 			}
-		} else if (isGrepToolResult(event) || isFindToolResult(event)) {
+		} else if (event.toolName === "grep" || event.toolName === "find") {
 			runState.searchCount += 1;
-		} else if (isLsToolResultEvent(event)) {
+		} else if (event.toolName === "ls") {
 			runState.listCount += 1;
-		} else if (isBashToolResult(event)) {
+		} else if (event.toolName === "bash") {
 			runState.bashCount += 1;
 		}
 
-		if (toolLogsEnabled && !(isEditToolResult(event) || isWriteToolResult(event))) {
+		if (toolLogsEnabled && event.toolName !== "edit" && event.toolName !== "write") {
 			appendLog("info", summarizeToolResult(event));
 		}
 		setProgress(estimateProgress(runState), "Working");
@@ -711,6 +750,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async (event) => {
+		stopActivityLog();
 		agentActive = false;
 		activeToolCount = 0;
 		const durationMs = Date.now() - runState.startedAt;
@@ -756,6 +796,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		runSequence += 1;
 		agentActive = false;
 		activeToolCount = 0;
+		stopActivityLog();
 		cancelFinalClear();
 		clearProgress();
 		clearStatus();
