@@ -141,6 +141,14 @@ function getLastAssistantMessage(messages: readonly unknown[]): AssistantMessage
 	return undefined;
 }
 
+function isOmpSilentAbort(messages: readonly unknown[]): boolean {
+	const assistantMessage = getLastAssistantMessage(messages);
+	return (
+		assistantMessage?.stopReason === "aborted" &&
+		assistantMessage.errorMessage?.trim() === "__omp.silent_abort__"
+	);
+}
+
 function extractAssistantText(message: AssistantMessageLike): string | undefined {
 	if (!Array.isArray(message.content)) return undefined;
 
@@ -288,6 +296,10 @@ export default function cmuxNotifyExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async (event) => {
+		if (isOmpSilentAbort(event.messages)) {
+			return;
+		}
+
 		const durationMs = Date.now() - runState.startedAt;
 		const runError = summarizeRunError(event.messages, runState.firstToolError);
 		const subtitle = buildSubtitle(Boolean(runError), runState, durationMs, thresholdMs);

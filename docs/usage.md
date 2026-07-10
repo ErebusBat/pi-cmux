@@ -34,9 +34,9 @@ PI_CMUX_NOTIFY_LEVEL=disabled  # off
 `cmux-sidebar` updates the cmux right sidebar while Pi runs. It only activates inside a cmux workspace (`CMUX_WORKSPACE_ID` is present).
 
 It uses:
-- `cmux set-status` for a temporary Pi status pill while Pi is running, using tools, waiting, done, or errored
+- `cmux set-status` for a temporary Pi status pill that refreshes with active phase and elapsed run time while Pi is working, then shows waiting, done, or errored terminal states
 - `cmux set-progress` for coarse run progress and live token counts while Pi is active
-- `cmux log` for run starts, one-second working heartbeat lines, changed files, warnings, final summaries, and compact session token counts, with cached input split out
+- `cmux log` for run starts, one-second working heartbeat log lines, changed files, warnings, final summaries, and compact session token counts, with cached input split out
 - `cmux trigger-flash` when a run finishes and the surface needs attention
 
 Environment settings:
@@ -45,12 +45,12 @@ Environment settings:
 PI_CMUX_SIDEBAR=0                    # disable sidebar integration
 PI_CMUX_SIDEBAR_FLASH=all            # all | error | disabled
 PI_CMUX_SIDEBAR_LOG_TOOLS=1          # log every tool result
-PI_CMUX_SIDEBAR_ACTIVITY=0          # disable one-second working heartbeat log lines
+PI_CMUX_SIDEBAR_ACTIVITY=0           # disable only one-second working heartbeat log lines
 PI_CMUX_SIDEBAR_LOG_PROMPT=1         # include truncated prompt in start log
 PI_CMUX_SIDEBAR_PROGRESS=0           # disable progress bar updates
 PI_CMUX_SIDEBAR_TOKENS=0             # disable compact live session token counts
 PI_CMUX_SIDEBAR_COST=1               # include reported model cost with tokens
-PI_CMUX_SIDEBAR_FINAL_CLEAR_MS=2500  # clear final status/progress after this delay
+PI_CMUX_SIDEBAR_FINAL_CLEAR_MS=2500  # clear completed, waiting, and error status/progress after this delay
 PI_CMUX_SIDEBAR_STATUS_KEY=my-key    # override status key
 ```
 

@@ -35,7 +35,7 @@ If Pi is already running:
 | Workflow | Commands | Summary |
 |---|---|---|
 | Notifications | automatic | Sends `cmux notify` when Pi waits, completes work, or errors. |
-| Sidebar status/log | automatic | Updates cmux status, progress, logs, and surface flash while Pi runs. |
+| Sidebar status/log | automatic | Refreshes the cmux status pill with active phase and elapsed run time while Pi works, plus progress, logs, and surface flash. |
 | Split Pi | `/cmv [prompt]`, `/cmh [prompt]` | Opens a new right/lower split with Pi in the same project. |
 | Run a tool | `/cmo <cmd>`, `/cmoh <cmd>`, `/cmt <cmd>` | Opens a split or tab and runs a shell command in the same project. |
 | Pluggable tools | custom `/<name>` | Registers cmux split shortcuts from `pi-cmux.commands` settings. |
@@ -67,7 +67,7 @@ Detailed command examples: [docs/usage.md](docs/usage.md).
 | `PI_CMUX_NOTIFY_INCLUDE_RESPONSE` | `0` | Append truncated final assistant response to non-error notifications. |
 | `PI_CMUX_NOTIFY_THRESHOLD_MS` | `15000` | Duration threshold for `Task Complete` vs `Waiting`. |
 | `PI_CMUX_SIDEBAR` | `1` | Set `0` to disable sidebar integration. |
-| `PI_CMUX_SIDEBAR_ACTIVITY` | `1` | Emit one-second working heartbeat lines in the cmux sidebar log. |
+| `PI_CMUX_SIDEBAR_ACTIVITY` | `1` | Emit one-second working heartbeat lines in the cmux sidebar log only. |
 | `PI_CMUX_SIDEBAR_FLASH` | `all` | `all`, `error`, or `disabled`. |
 | `PI_CMUX_SIDEBAR_PROGRESS` | `1` | Set `0` to disable sidebar progress updates. |
 | `PI_CMUX_SIDEBAR_TOKENS` | `1` | Include compact live cumulative session token counts in sidebar progress and summaries. |

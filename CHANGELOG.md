@@ -5,10 +5,12 @@
 ### Added
 
 - Added one-second cmux sidebar heartbeat logs while Pi is actively working.
+- Added elapsed active-status updates to the cmux sidebar so planning and other Pi runs remain visibly active.
 
 ### Fixed
 
 - Fixed pi-cmux loading under OMP's bundled Pi agent by avoiding unavailable runtime type-guard exports.
+- Stopped OMP plan-mode silent-abort control markers from creating cmux alerts or sidebar error activity.
 
 ## [0.1.16] - 2026-05-27
 
