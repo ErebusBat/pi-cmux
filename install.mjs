@@ -66,6 +66,17 @@ function removeLegacyInstall() {
 		fs.rmSync(LEGACY_EXTENSION_DIR, { recursive: true, force: true });
 	}
 }
+function linkRuntimeDependencies() {
+	const sdkEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+	const nodeModulesMarker = `${path.sep}node_modules${path.sep}`;
+	const nodeModulesIndex = sdkEntry.lastIndexOf(nodeModulesMarker);
+	if (nodeModulesIndex < 0) {
+		throw new Error(`Could not locate node_modules for ${PACKAGE_NAME}'s Pi SDK dependency`);
+	}
+	const sourceNodeModules = sdkEntry.slice(0, nodeModulesIndex + nodeModulesMarker.length - 1);
+	fs.symlinkSync(sourceNodeModules, path.join(PACKAGE_DIR, "node_modules"), "junction");
+}
+
 
 function copyInstall() {
 	removeLegacyInstall();
@@ -77,6 +88,7 @@ function copyInstall() {
 	for (const dir of DIRECTORIES_TO_COPY) {
 		fs.cpSync(path.join(SOURCE_DIR, dir), path.join(PACKAGE_DIR, dir), { recursive: true });
 	}
+	linkRuntimeDependencies();
 	ensurePackageSettingsEntry();
 }
 

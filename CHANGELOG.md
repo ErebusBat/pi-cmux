@@ -11,6 +11,7 @@
 
 - Fixed pi-cmux loading under OMP's bundled Pi agent by avoiding unavailable runtime type-guard exports.
 - Stopped OMP plan-mode silent-abort control markers from creating cmux alerts or sidebar error activity.
+- Fixed local pi-cmux installs so their Pi SDK dependency resolves.
 
 ## [0.1.16] - 2026-05-27
 
