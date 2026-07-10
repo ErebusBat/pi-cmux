@@ -234,6 +234,7 @@ export default function cmuxNotifyExtension(pi: ExtensionAPI) {
 	let lastNotificationAt = 0;
 	let lastNotificationKey = "";
 	let cmuxUnavailable = false;
+	let hasUI = false;
 
 	const sendNotification = async (subtitle: string, body: string): Promise<{ ok: boolean; error?: string }> => {
 		if (cmuxUnavailable) {
@@ -264,7 +265,9 @@ export default function cmuxNotifyExtension(pi: ExtensionAPI) {
 		return { ok: true };
 	};
 
-	pi.on("agent_start", async () => {
+	pi.on("agent_start", async (_event, ctx) => {
+		hasUI = ctx.hasUI;
+		if (!hasUI) return;
 		runState = createEmptyRunState();
 	});
 
@@ -296,6 +299,9 @@ export default function cmuxNotifyExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async (event) => {
+		if (!hasUI) {
+			return;
+		}
 		if (isOmpSilentAbort(event.messages)) {
 			return;
 		}

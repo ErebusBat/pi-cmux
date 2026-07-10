@@ -53,6 +53,87 @@ interface AssistantMessageLike {
 	usage?: TokenUsageLike;
 }
 
+type OmpSubagentStatus = "running" | "completed" | "failed" | "aborted";
+
+interface SubagentState {
+	agent: string;
+	status: OmpSubagentStatus;
+	activity?: string;
+}
+
+interface OmpSubagentLifecyclePayload {
+	id: string;
+	agent: string;
+	status: "started" | "completed" | "failed" | "aborted";
+}
+
+interface OmpSubagentProgressPayload {
+	id: string;
+	agent: string;
+	progress: {
+		status?: unknown;
+		lastIntent?: unknown;
+		currentTool?: unknown;
+	};
+}
+
+interface OmpEventBus {
+	on(channel: string, handler: (data: unknown) => void): () => void;
+}
+
+interface OmpExtensionAPI {
+	events?: unknown;
+}
+
+function isOmpEventBus(value: unknown): value is OmpEventBus {
+	return typeof value === "object" && value !== null && "on" in value && typeof value.on === "function";
+}
+
+function isOmpSubagentLifecyclePayload(value: unknown): value is OmpSubagentLifecyclePayload {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"id" in value &&
+		typeof value.id === "string" &&
+		"agent" in value &&
+		typeof value.agent === "string" &&
+		"status" in value &&
+		(value.status === "started" || value.status === "completed" || value.status === "failed" || value.status === "aborted")
+	);
+}
+
+function isOmpSubagentProgressPayload(value: unknown): value is OmpSubagentProgressPayload {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"id" in value &&
+		typeof value.id === "string" &&
+		"agent" in value &&
+		typeof value.agent === "string" &&
+		"progress" in value &&
+		typeof value.progress === "object" &&
+		value.progress !== null
+	);
+}
+
+
+function formatSubagentSummary(subagents: ReadonlyMap<string, SubagentState>): string | undefined {
+	if (subagents.size === 0) return undefined;
+
+	const counts = { running: 0, completed: 0, failed: 0, aborted: 0 };
+	for (const subagent of subagents.values()) {
+		counts[subagent.status] += 1;
+	}
+
+	const parts = [
+		counts.running > 0 ? `${counts.running} running` : undefined,
+		counts.completed > 0 ? `${counts.completed} done` : undefined,
+		counts.failed > 0 ? `${counts.failed} failed` : undefined,
+		counts.aborted > 0 ? `${counts.aborted} cancelled` : undefined,
+	].filter((part): part is string => part !== undefined);
+	return `${subagents.size} ${pluralize(subagents.size, "subagent")} (${parts.join(", ")})`;
+}
+
 const STATUS_STYLE: Record<StatusKind, { icon: string; color: string }> = {
 	running: { icon: "sparkle", color: "#0A84FF" },
 	tool: { icon: "hammer", color: "#FF9F0A" },
@@ -501,6 +582,8 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	let activeUpdateTimer: TimerHandle | undefined;
 	let activeStatus: { kind: StatusKind; baseLabel: string } | undefined;
 	let lastActivityLogAt = 0;
+	let isInteractive = false;
+	const subagents = new Map<string, SubagentState>();
 
 	const markCmuxUnavailableIfFatal = (text: string): void => {
 		if (isCmuxUnavailableError(text)) {
@@ -537,10 +620,11 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 
 	const setStatus = (kind: StatusKind, value: string): void => {
 		const style = STATUS_STYLE[kind];
+		const subagentSummary = formatSubagentSummary(subagents);
 		enqueueCmux([
 			"set-status",
 			statusKey,
-			value,
+			subagentSummary ? `${value} · ${subagentSummary}` : value,
 			"--icon",
 			style.icon,
 			"--color",
@@ -663,7 +747,60 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		(finalClearTimeout as { unref?: () => void }).unref?.();
 	};
 
-	pi.on("session_start", async () => {
+	const refreshSubagentStatus = (): void => {
+		if (isInteractive && agentActive && activeStatus) {
+			refreshActiveStatus();
+		}
+	};
+
+	// OMP adds events to Pi's extension API; the upstream Pi SDK intentionally does not declare it.
+	const ompPi = pi as unknown as OmpExtensionAPI;
+	const ompEvents = isOmpEventBus(ompPi.events) ? ompPi.events : undefined;
+	ompEvents?.on("task:subagent:lifecycle", payload => {
+		if (!isInteractive || !isOmpSubagentLifecyclePayload(payload)) return;
+
+		const status = payload.status === "started" ? "running" : payload.status;
+		subagents.set(payload.id, { agent: payload.agent, status });
+		const label = `Subagent ${payload.id} (${payload.agent})`;
+		if (status === "running") {
+			appendLog("progress", `${label} started`);
+		} else if (status === "completed") {
+			appendLog("success", `${label} completed`);
+		} else if (status === "failed") {
+			appendLog("error", `${label} failed`);
+		} else {
+			appendLog("warning", `${label} cancelled`);
+		}
+		refreshSubagentStatus();
+	});
+	ompEvents?.on("task:subagent:progress", payload => {
+		if (!isInteractive || !isOmpSubagentProgressPayload(payload)) return;
+
+		const existing = subagents.get(payload.id);
+		if (!existing) return;
+		const status =
+			payload.progress.status === "running" ||
+			payload.progress.status === "completed" ||
+			payload.progress.status === "failed" ||
+			payload.progress.status === "aborted"
+				? payload.progress.status
+				: existing.status;
+		const activity =
+			typeof payload.progress.lastIntent === "string"
+				? payload.progress.lastIntent
+				: typeof payload.progress.currentTool === "string"
+					? `running ${payload.progress.currentTool}`
+					: existing.activity;
+		subagents.set(payload.id, { agent: payload.agent, status, activity });
+		if (activity && activity !== existing.activity) {
+			appendLog("progress", `Subagent ${payload.id}: ${activity}`);
+		}
+		refreshSubagentStatus();
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		isInteractive = ctx.hasUI;
+		if (!isInteractive) return;
 		stopActiveUpdates();
 		activeStatus = undefined;
 		cancelFinalClear();
@@ -674,15 +811,20 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		latestTokenSummary = undefined;
 		agentActive = false;
 		activeToolCount = 0;
+		subagents.clear();
 		clearProgress();
 		clearStatus();
 	});
 
-	pi.on("before_agent_start", async (event) => {
+	pi.on("before_agent_start", async (event, ctx) => {
+		isInteractive = ctx.hasUI;
+		if (!isInteractive) return;
 		pendingPrompt = event.prompt ? truncateText(event.prompt, MAX_PROMPT_LENGTH) : undefined;
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {
+		isInteractive = ctx.hasUI;
+		if (!isInteractive) return;
 		runSequence += 1;
 		agentActive = true;
 		lastActivityLogAt = 0;
@@ -693,6 +835,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		tokenRunTotals = createEmptyTokenTotals();
 		liveAssistantUsage = undefined;
 		activeToolCount = 0;
+		subagents.clear();
 		updateLatestTokenSummary(tokenBaseTotals);
 		setActiveStatus("running", "Pi running");
 		setProgress(0.08, "Starting");
@@ -701,6 +844,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_start", async (event) => {
+		if (!isInteractive) return;
 		runState.turnCount = Math.max(runState.turnCount, event.turnIndex + 1);
 		setActiveStatus("running", event.turnIndex > 0 ? `Pi turn ${event.turnIndex + 1}` : "Pi thinking");
 		setProgress(estimateProgress(runState), "Thinking");
@@ -710,12 +854,14 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("message_update", async (event) => {
+		if (!isInteractive) return;
 		if (!tokenTrackingEnabled || !isAssistantMessage(event.message) || !hasReportableUsage(event.message.usage)) return;
 		liveAssistantUsage = event.message.usage;
 		refreshTokenSummary();
 	});
 
 	pi.on("message_end", async (event) => {
+		if (!isInteractive) return;
 		if (!tokenTrackingEnabled || !isAssistantMessage(event.message)) return;
 		addTokenUsage(tokenRunTotals, event.message.usage);
 		liveAssistantUsage = undefined;
@@ -723,6 +869,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_start", async (event) => {
+		if (!isInteractive) return;
 		activeToolCount += 1;
 		setActiveStatus("tool", `Pi ${event.toolName}`);
 		setProgress(estimateProgress(runState), event.toolName);
@@ -732,6 +879,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_result", async (event) => {
+		if (!isInteractive) return;
 		runState.toolCount += 1;
 
 		if (event.isError) {
@@ -768,6 +916,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_end", async () => {
+		if (!isInteractive) return;
 		activeToolCount = Math.max(0, activeToolCount - 1);
 		if (agentActive && activeToolCount === 0) {
 			setActiveStatus("running", "Pi thinking");
@@ -776,6 +925,7 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async (event) => {
+		if (!isInteractive) return;
 		stopActiveUpdates();
 		activeStatus = undefined;
 		agentActive = false;
@@ -827,7 +977,9 @@ export default function cmuxSidebarExtension(pi: ExtensionAPI) {
 		scheduleFinalClear(runSequence);
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		isInteractive = ctx.hasUI;
+		if (!isInteractive) return;
 		runSequence += 1;
 		stopActiveUpdates();
 		activeStatus = undefined;

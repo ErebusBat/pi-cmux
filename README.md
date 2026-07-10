@@ -34,8 +34,8 @@ If Pi is already running:
 
 | Workflow | Commands | Summary |
 |---|---|---|
-| Notifications | automatic | Sends `cmux notify` when Pi waits, completes work, or errors. |
-| Sidebar status/log | automatic | Refreshes the cmux status pill with active phase and elapsed run time while Pi works, plus progress, logs, and surface flash. |
+| Notifications | automatic | Sends `cmux notify` when an interactive Pi run waits, completes work, or errors; OMP subagents remain sidebar-only. |
+| Sidebar status/log | automatic | Refreshes the cmux status pill with active phase, elapsed run time, and OMP subagent counts, plus progress, logs, and surface flash. |
 | Split Pi | `/cmv [prompt]`, `/cmh [prompt]` | Opens a new right/lower split with Pi in the same project. |
 | Run a tool | `/cmo <cmd>`, `/cmoh <cmd>`, `/cmt <cmd>` | Opens a split or tab and runs a shell command in the same project. |
 | Pluggable tools | custom `/<name>` | Registers cmux split shortcuts from `pi-cmux.commands` settings. |

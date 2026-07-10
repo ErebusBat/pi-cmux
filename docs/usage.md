@@ -6,6 +6,8 @@ Detailed usage for the cmux integrations bundled with `pi-cmux`.
 
 `cmux-notify` sends `cmux notify` alerts when Pi finishes a run.
 
+In Oh-My-Pi, headless subagents never send OS notifications. Their lifecycle and activity remain visible through the parent run's cmux sidebar.
+
 Notification fields:
 - title: `Pi` by default
 - subtitle: `Waiting`, `Task Complete`, or `Error`
@@ -38,6 +40,8 @@ It uses:
 - `cmux set-progress` for coarse run progress and live token counts while Pi is active
 - `cmux log` for run starts, one-second working heartbeat log lines, changed files, warnings, final summaries, and compact session token counts, with cached input split out
 - `cmux trigger-flash` when a run finishes and the surface needs attention
+
+In Oh-My-Pi, subagent lifecycle and activity events add an aggregate count to the status pill and detailed start, activity, completion, failure, or cancellation entries to the sidebar log. Headless subagent extension instances do not update the shared cmux sidebar directly.
 
 Environment settings:
 
