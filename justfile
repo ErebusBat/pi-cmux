@@ -8,6 +8,23 @@ install profile='':
         omp plugin install {{justfile_directory()}} --force
     fi
 
+# install the cmux OMP hook into an omp profile
+# usage: just install-hook [profile]
+install-hook profile='':
+    #!/usr/bin/env bash
+    if [ -n "{{profile}}" ]; then
+        OMP_PROFILE={{profile}} cmux hooks setup omp --yes
+    else
+        cmux hooks setup omp --yes
+    fi
+
+# install the cmux OMP hook and pi-cmux; use this in most cases
+# recommended for most installs: just install-with-hook [profile]
+install-with-hook profile='':
+    #!/usr/bin/env bash
+    just --justfile "{{justfile()}}" install-hook "{{profile}}"
+    just --justfile "{{justfile()}}" install "{{profile}}"
+
 # link pi-cmux as a local plugin in an omp profile
 # usage: just link [profile]
 link profile='':
