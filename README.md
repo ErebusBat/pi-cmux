@@ -96,7 +96,7 @@ Use `/ck` to open Hunk in a cmux split, add Hunk comments while reviewing, then 
 
 `pi-cmux` also exposes an agent tool so Pi can open an explicitly requested terminal command in a cmux split or tab. For example, asking "open k9s in a new tab" lets Pi open `k9s` without trying to capture the TUI through a shell command.
 
-cmux workspace/surface targeting uses `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` automatically. Sidebar integration only activates inside a cmux workspace.
+cmux workspace/surface targeting uses `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` automatically. Sidebar integration only activates inside a cmux workspace. pi-cmux silently disables its integrations when `cmux` is unavailable on `PATH`.
 
 ## Bundled resources
 

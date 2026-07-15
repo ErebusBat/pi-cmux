@@ -10,6 +10,7 @@
 ### Fixed
 
 - Fixed pi-cmux loading under OMP's bundled Pi agent by avoiding unavailable runtime type-guard exports.
+- Disabled the package without surfacing an extension error when the `cmux` executable is unavailable.
 - Stopped OMP plan-mode silent-abort control markers from creating cmux alerts or sidebar error activity.
 - Stopped OMP subagents from sending cmux notifications while showing their status and activity in the parent sidebar.
 - Fixed local pi-cmux installs so their Pi SDK dependency resolves.

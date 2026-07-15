@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import piCmuxExtensionBundle from "../extensions/index.ts";
 import cmuxNotifyExtension from "../extensions/cmux-notify.ts";
 import cmuxSidebarExtension from "../extensions/cmux-sidebar.ts";
 
@@ -30,6 +31,7 @@ function createExtensionApi() {
 	return {
 		pi,
 		calls,
+		handlers,
 		async emit(event, payload, context) {
 			await handlers.get(event)?.(payload, context);
 		},
@@ -40,6 +42,19 @@ function createExtensionApi() {
 		},
 	};
 }
+
+test("silently disables integrations when cmux is unavailable", async () => {
+	const api = createExtensionApi();
+	const probes = [];
+	api.pi.exec = async (command, args) => {
+		probes.push({ command, args });
+		throw new Error('Executable not found in $PATH: "cmux"');
+	};
+
+	await assert.doesNotReject(piCmuxExtensionBundle(api.pi));
+	assert.deepEqual(probes, [{ command: "cmux", args: ["--version"] }]);
+	assert.equal(api.handlers.size, 0);
+});
 
 function context(hasUI) {
 	return {
