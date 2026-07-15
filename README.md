@@ -67,7 +67,6 @@ Detailed command examples: [docs/usage.md](docs/usage.md).
 | `PI_CMUX_NOTIFY_INCLUDE_RESPONSE` | `0` | Append truncated final assistant response to non-error notifications. |
 | `PI_CMUX_NOTIFY_THRESHOLD_MS` | `15000` | Duration threshold for `Task Complete` vs `Waiting`. |
 | `PI_CMUX_SIDEBAR` | `1` | Set `0` to disable sidebar integration. |
-| `PI_CMUX_SIDEBAR_ACTIVITY` | `1` | Emit one-second working heartbeat lines in the cmux sidebar log only. |
 | `PI_CMUX_SIDEBAR_FLASH` | `all` | `all`, `error`, or `disabled`. |
 | `PI_CMUX_SIDEBAR_PROGRESS` | `1` | Set `0` to disable sidebar progress updates. |
 | `PI_CMUX_SIDEBAR_TOKENS` | `1` | Include compact live cumulative session token counts in sidebar progress and summaries. |

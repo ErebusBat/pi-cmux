@@ -14,16 +14,17 @@ function createExtensionApi() {
 		on(event, handler) {
 			handlers.set(event, handler);
 		},
+		getSessionName: () => undefined,
 		async exec(command, args) {
 			calls.push({ command, args });
 			return { code: 0, stdout: "", stderr: "", killed: false };
 		},
 		events: {
 			on(channel, handler) {
-			const listeners = eventHandlers.get(channel) ?? [];
-			listeners.push(handler);
-			eventHandlers.set(channel, listeners);
-			return () => {};
+				const listeners = eventHandlers.get(channel) ?? [];
+				listeners.push(handler);
+				eventHandlers.set(channel, listeners);
+				return () => {};
 			},
 		},
 	};
@@ -56,11 +57,12 @@ test("silently disables integrations when cmux is unavailable", async () => {
 	assert.equal(api.handlers.size, 0);
 });
 
-function context(hasUI) {
+function context(hasUI, sessionName = undefined) {
 	return {
 		hasUI,
 		sessionManager: {
 			getBranch: () => [],
+			getSessionName: () => sessionName,
 		},
 	};
 }
@@ -115,6 +117,83 @@ test("does not let a headless OMP subagent control the cmux sidebar", async t =>
 	assert.equal(api.calls.length, 0);
 });
 
+test("clears a completed sidebar label when a subagent starts", async t => {
+	withCmuxEnvironment(t);
+	const api = createExtensionApi();
+	cmuxSidebarExtension(api.pi);
+	const interactiveContext = context(true, "Review");
+
+	await api.emit("session_start", {}, interactiveContext);
+	await api.emit("agent_start", {}, interactiveContext);
+	await api.emit("agent_end", { messages: [] }, interactiveContext);
+	await new Promise(resolve => setImmediate(resolve));
+	api.calls.length = 0;
+
+	await api.emitOmp("task:subagent:lifecycle", {
+		id: "Scout",
+		agent: "scout",
+		status: "started",
+	});
+	await new Promise(resolve => setImmediate(resolve));
+
+	const statuses = api.calls.filter(call => call.args[0] === "set-status").map(call => call.args[2]);
+	assert.equal(statuses.at(-1), "Review: working · 1 subagent (1 running)");
+	assert.ok(statuses.every(status => !status.includes("done") && !status.includes("waiting for input")));
+});
+
+test("marks the sidebar working as soon as the user submits a message", async t => {
+	withCmuxEnvironment(t);
+	const api = createExtensionApi();
+	cmuxSidebarExtension(api.pi);
+	const interactiveContext = context(true, "Review");
+
+	await api.emit("session_start", {}, interactiveContext);
+	await api.emit("agent_start", {}, interactiveContext);
+	await api.emit("agent_end", { messages: [] }, interactiveContext);
+	await new Promise(resolve => setImmediate(resolve));
+	api.calls.length = 0;
+
+	await api.emit("before_agent_start", { prompt: "Continue the review" }, interactiveContext);
+	await new Promise(resolve => setImmediate(resolve));
+
+	const clearIndex = api.calls.findIndex(call => call.args[0] === "clear-status");
+	const workingIndex = api.calls.findIndex(
+		call => call.args[0] === "set-status" && call.args[2] === "Review: working",
+	);
+	assert.ok(clearIndex >= 0 && clearIndex < workingIndex);
+});
+
+test("waits for running subagents before showing an idle sidebar label", async t => {
+	withCmuxEnvironment(t);
+	const api = createExtensionApi();
+	cmuxSidebarExtension(api.pi);
+	const interactiveContext = context(true, "Review");
+
+	await api.emit("session_start", {}, interactiveContext);
+	await api.emit("agent_start", {}, interactiveContext);
+	await api.emitOmp("task:subagent:lifecycle", {
+		id: "Scout",
+		agent: "scout",
+		status: "started",
+	});
+	api.calls.length = 0;
+
+	await api.emit("agent_end", { messages: [] }, interactiveContext);
+	await new Promise(resolve => setImmediate(resolve));
+	let statuses = api.calls.filter(call => call.args[0] === "set-status").map(call => call.args[2]);
+	assert.equal(statuses.at(-1), "Review: working · 1 subagent (1 running)");
+
+	api.calls.length = 0;
+	await api.emitOmp("task:subagent:lifecycle", {
+		id: "Scout",
+		agent: "scout",
+		status: "completed",
+	});
+	await new Promise(resolve => setImmediate(resolve));
+	statuses = api.calls.filter(call => call.args[0] === "set-status").map(call => call.args[2]);
+	assert.equal(statuses.at(-1), "Review: waiting for input · 1 subagent (1 done)");
+});
+
 test("shows OMP subagent progress in the interactive sidebar", async t => {
 	withCmuxEnvironment(t);
 	const api = createExtensionApi();
@@ -144,4 +223,42 @@ test("shows OMP subagent progress in the interactive sidebar", async t => {
 		api.calls.some(call => call.args[0] === "set-status" && call.args[2].includes("1 subagent (1 running)")),
 	);
 	assert.ok(api.calls.some(call => call.args[0] === "log" && call.args.at(-1).includes("Scout")));
+});
+
+
+test("uses one workspace status key across cmux surfaces", async t => {
+	withCmuxEnvironment(t);
+	process.env.CMUX_SURFACE_ID = "surface-one";
+	const firstApi = createExtensionApi();
+	cmuxSidebarExtension(firstApi.pi);
+	await firstApi.emit("session_start", {}, context(true));
+	await firstApi.emit("agent_start", {}, context(true));
+	await new Promise(resolve => setImmediate(resolve));
+
+	process.env.CMUX_SURFACE_ID = "surface-two";
+	const secondApi = createExtensionApi();
+	cmuxSidebarExtension(secondApi.pi);
+	await secondApi.emit("session_start", {}, context(true));
+	await secondApi.emit("agent_start", {}, context(true));
+	await new Promise(resolve => setImmediate(resolve));
+
+	const firstStatus = firstApi.calls.find(call => call.args[0] === "set-status");
+	const secondStatus = secondApi.calls.find(call => call.args[0] === "set-status");
+	assert.equal(firstStatus.args[1], "pi-cmux-workspace-test");
+	assert.equal(secondStatus.args[1], firstStatus.args[1]);
+});
+
+test("does not emit duplicate working heartbeat logs", async t => {
+	withCmuxEnvironment(t);
+	const api = createExtensionApi();
+	cmuxSidebarExtension(api.pi);
+
+	await api.emit("session_start", {}, context(true, "Review"));
+	await api.emit("agent_start", {}, context(true, "Review"));
+	await new Promise(resolve => setTimeout(resolve, 1100));
+
+	assert.equal(
+		api.calls.filter(call => call.args[0] === "log" && call.args.at(-1).startsWith("Working -")).length,
+		0,
+	);
 });
